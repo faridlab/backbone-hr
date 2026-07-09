@@ -1,0 +1,79 @@
+# =============================================================================
+# Domain: HR
+# Entity: LeaveApplication
+# Description: An employee's request for leave over a date range. `days` is computed from the range;
+# APPROVING it draws down the matching LeaveBalance (gated on availability) — cancelling an approved
+# application restores it. Posts NO GL.
+# =============================================================================
+
+models:
+  - name: LeaveApplication
+    collection: leave_applications
+    description: "A leave request that draws down a LeaveBalance on approval"
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique application id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Org owner # logical FK to organization.Company.id"
+      employee_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(Employee.id)"]
+        description: "The applicant"
+      leave_type_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(LeaveType.id)"]
+        description: "The leave type requested"
+      from_date:
+        type: datetime
+        attributes: ["@required"]
+        description: "First day of leave"
+      to_date:
+        type: datetime
+        attributes: ["@required"]
+        description: "Last day of leave (inclusive)"
+      days:
+        type: decimal
+        attributes: ["@default(0)", "@precision(6,2)", "@non_negative"]
+        description: "Number of leave days (computed from the range)"
+      status:
+        type: LeaveStatus
+        attributes: ["@required", "@default(pending)"]
+        description: "pending → approved / rejected / cancelled"
+      reason:
+        type: string?
+        attributes: ["@max(280)"]
+        description: "Why (free-text)"
+      approved_by:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Approver # logical FK to sapiens.User.id"
+      approved_at:
+        type: datetime?
+        description: "When it was approved"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+    indexes:
+      - type: index
+        fields: [company_id, status]
+      - type: index
+        fields: [employee_id, status]
+
+enums:
+  - name: LeaveStatus
+    description: "Leave application lifecycle"
+    variants:
+      - name: pending
+        description: "Submitted, awaiting approval"
+        default: true
+      - name: approved
+        description: "Approved — balance drawn down"
+      - name: rejected
+        description: "Rejected — no balance change"
+      - name: cancelled
+        description: "Cancelled — balance restored if it was approved"

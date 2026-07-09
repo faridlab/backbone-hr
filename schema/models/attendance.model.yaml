@@ -1,0 +1,61 @@
+# =============================================================================
+# Domain: HR
+# Entity: Attendance
+# Description: One employee's presence on one date. At most one record per (employee, date). Feeds
+# backbone-payroll the working/absent days that scale pay. Posts NO GL.
+# =============================================================================
+
+models:
+  - name: Attendance
+    collection: attendances
+    description: "An employee's presence on a date (one per employee per day)"
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique record id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Org owner # logical FK to organization.Company.id"
+      employee_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(Employee.id)"]
+        description: "The employee"
+      attendance_date:
+        type: datetime
+        attributes: ["@required"]
+        description: "The day"
+      status:
+        type: AttendanceStatus
+        attributes: ["@required", "@default(present)"]
+        description: "present / absent / half_day / on_leave / holiday"
+      working_hours:
+        type: decimal
+        attributes: ["@default(0)", "@precision(5,2)", "@non_negative"]
+        description: "Hours worked (for hourly / overtime feeds)"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+    indexes:
+      - type: unique
+        fields: [employee_id, attendance_date]
+      - type: index
+        fields: [company_id, attendance_date]
+
+enums:
+  - name: AttendanceStatus
+    description: "Daily attendance state"
+    variants:
+      - name: present
+        description: "Worked a full day"
+        default: true
+      - name: absent
+        description: "Absent (unpaid unless covered by leave)"
+      - name: half_day
+        description: "Half day"
+      - name: on_leave
+        description: "On approved leave"
+      - name: holiday
+        description: "Company / public holiday"

@@ -1,0 +1,50 @@
+# =============================================================================
+# Domain: HR
+# Entity: LeaveBalance
+# Description: An employee's leave entitlement for one leave type in one year. `available = allocated -
+# used`; approving a LeaveApplication increments `used` (gated so it never exceeds `allocated`) — the
+# load-bearing invariant of the module (you cannot approve leave you don't have). Posts NO GL.
+# =============================================================================
+
+models:
+  - name: LeaveBalance
+    collection: leave_balances
+    description: "An employee's per-year entitlement for one leave type (allocated / used)"
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique balance id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Org owner # logical FK to organization.Company.id"
+      employee_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(Employee.id)"]
+        description: "The employee"
+      leave_type_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(LeaveType.id)"]
+        description: "The leave type"
+      year:
+        type: integer
+        attributes: ["@required"]
+        description: "Calendar year the entitlement applies to"
+      allocated:
+        type: decimal
+        attributes: ["@default(0)", "@precision(6,2)", "@non_negative"]
+        description: "Days granted this year (quota + carry-forward)"
+      used:
+        type: decimal
+        attributes: ["@default(0)", "@precision(6,2)", "@non_negative"]
+        description: "Days consumed by approved applications (never exceeds allocated)"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+    indexes:
+      - type: unique
+        fields: [employee_id, leave_type_id, year]
+      - type: index
+        fields: [company_id, year]

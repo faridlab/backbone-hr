@@ -1,0 +1,47 @@
+# =============================================================================
+# Domain: HR
+# Entity: LeaveType
+# Description: A kind of leave (Annual / Sick / Unpaid) with an annual quota. An employee's per-year
+# LeaveBalance is allocated against a leave type; an approved LeaveApplication draws it down. Posts NO GL.
+# =============================================================================
+
+models:
+  - name: LeaveType
+    collection: leave_types
+    description: "A kind of leave with an annual quota"
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique leave type id"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Org owner # logical FK to organization.Company.id"
+      name:
+        type: string
+        attributes: ["@required", "@max(80)"]
+        description: "Leave name (Cuti Tahunan / Sakit / Tanpa Gaji)"
+      is_paid:
+        type: boolean
+        attributes: ["@default(true)"]
+        description: "Whether the leave is paid (unpaid leave affects payroll days)"
+      annual_quota_days:
+        type: decimal
+        attributes: ["@default(0)", "@precision(6,2)", "@non_negative"]
+        description: "Default days granted per year (Indonesia statutory annual leave is 12)"
+      allow_carry_forward:
+        type: boolean
+        attributes: ["@default(false)"]
+        description: "Whether an unused balance carries into the next year"
+      is_active:
+        type: boolean
+        attributes: ["@default(true)"]
+        description: "Whether new applications may use this leave type"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+    indexes:
+      - type: index
+        fields: [company_id, is_active]

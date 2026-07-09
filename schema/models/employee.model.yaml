@@ -1,0 +1,140 @@
+# =============================================================================
+# Domain: HR
+# Entity: Employee
+# Description: The canonical people master. Owns `employee_id` — the logical FK every downstream module
+# references (payroll salary slips, journal party lines, project timesheets). READS its user identity
+# from backbone-sapiens and its department from backbone-organization (logical FKs, no DB constraint).
+# Carries the Indonesia payroll identity (NIK, NPWP, PTKP tax status, bank) so payroll can compute
+# statutory deductions. Posts NO GL.
+# =============================================================================
+
+models:
+  - name: Employee
+    collection: employees
+    description: "The people master — identity, employment lifecycle, and Indonesia payroll identity"
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique employee id (the logical FK downstream modules reference)"
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Org owner # logical FK to organization.Company.id"
+      employee_number:
+        type: string
+        attributes: ["@required", "@max(40)"]
+        description: "Human employee code (unique per company)"
+      user_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "The login identity (if any) # logical FK to sapiens.User.id"
+      department_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Department # logical FK to organization.Department.id"
+      first_name:
+        type: string
+        attributes: ["@required", "@max(120)"]
+        description: "Given name"
+      last_name:
+        type: string?
+        attributes: ["@max(120)"]
+        description: "Family name"
+      designation:
+        type: string?
+        attributes: ["@max(120)"]
+        description: "Job title (free-text; a Designation master is deferred)"
+      employment_type:
+        type: EmploymentType
+        attributes: ["@required", "@default(permanent)"]
+        description: "permanent / contract / probation / intern"
+      date_of_joining:
+        type: datetime
+        attributes: ["@required"]
+        description: "Start date"
+      date_of_exit:
+        type: datetime?
+        description: "Exit date (set on resign/terminate)"
+      status:
+        type: EmployeeStatus
+        attributes: ["@required", "@default(active)"]
+        description: "active → resigned / terminated"
+      # --- Indonesia payroll identity (read by backbone-payroll) ---
+      nik:
+        type: string?
+        attributes: ["@max(16)"]
+        description: "KTP national id (16 digits)"
+      npwp:
+        type: string?
+        attributes: ["@max(30)"]
+        description: "Tax number (affects PPh 21 rate — a missing NPWP is surcharged)"
+      tax_status:
+        type: TaxStatus
+        attributes: ["@required", "@default(tk0)"]
+        description: "PTKP marital/dependent status (drives PPh 21 personal relief)"
+      bank_account_no:
+        type: string?
+        attributes: ["@max(40)"]
+        description: "Disbursement account for net pay"
+      base_salary:
+        type: decimal
+        attributes: ["@default(0)", "@precision(18,2)", "@non_negative"]
+        description: "Monthly basic (the salary structure elaborates it in payroll)"
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+    indexes:
+      - type: index
+        fields: [company_id, status]
+      - type: index
+        fields: [department_id]
+      - type: index
+        fields: [user_id]
+
+enums:
+  - name: EmploymentType
+    description: "Employment relationship"
+    variants:
+      - name: permanent
+        description: "Permanent (PKWTT)"
+        default: true
+      - name: contract
+        description: "Fixed-term (PKWT)"
+      - name: probation
+        description: "Probation"
+      - name: intern
+        description: "Intern / magang"
+
+  - name: EmployeeStatus
+    description: "Employment lifecycle state"
+    variants:
+      - name: active
+        description: "Currently employed"
+        default: true
+      - name: resigned
+        description: "Left voluntarily"
+      - name: terminated
+        description: "Employment ended by the company"
+
+  - name: TaxStatus
+    description: "PTKP (Penghasilan Tidak Kena Pajak) status — marital + dependents, for PPh 21"
+    variants:
+      - name: tk0
+        description: "TK/0 — single, no dependents"
+        default: true
+      - name: tk1
+        description: "TK/1"
+      - name: tk2
+        description: "TK/2"
+      - name: tk3
+        description: "TK/3"
+      - name: k0
+        description: "K/0 — married, no dependents"
+      - name: k1
+        description: "K/1"
+      - name: k2
+        description: "K/2"
+      - name: k3
+        description: "K/3"
