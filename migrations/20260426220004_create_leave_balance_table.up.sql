@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS hr.leave_balances (
     employee_id UUID NOT NULL,
     leave_type_id UUID NOT NULL,
     year INTEGER NOT NULL,
-    allocated NUMERIC NOT NULL DEFAULT 0,
-    used NUMERIC NOT NULL DEFAULT 0,
+    allocated NUMERIC(6, 2) NOT NULL DEFAULT 0 CHECK (allocated >= 0),
+    used NUMERIC(6, 2) NOT NULL DEFAULT 0 CHECK (used >= 0),
     metadata JSONB NOT NULL DEFAULT '{"created_at":null,"updated_at":null,"deleted_at":null,"created_by":null,"updated_by":null,"deleted_by":null}'::jsonb,
     PRIMARY KEY (id)
 );

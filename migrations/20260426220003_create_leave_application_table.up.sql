@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS hr.leave_applications (
     leave_type_id UUID NOT NULL,
     from_date TIMESTAMPTZ NOT NULL,
     to_date TIMESTAMPTZ NOT NULL,
-    days NUMERIC NOT NULL DEFAULT 0,
+    days NUMERIC(6, 2) NOT NULL DEFAULT 0 CHECK (days >= 0),
     status leave_status NOT NULL DEFAULT 'pending',
     reason TEXT,
     approved_by UUID,

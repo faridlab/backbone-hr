@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS hr.attendances (
     employee_id UUID NOT NULL,
     attendance_date TIMESTAMPTZ NOT NULL,
     status attendance_status NOT NULL DEFAULT 'present',
-    working_hours NUMERIC NOT NULL DEFAULT 0,
+    working_hours NUMERIC(5, 2) NOT NULL DEFAULT 0 CHECK (working_hours >= 0),
     metadata JSONB NOT NULL DEFAULT '{"created_at":null,"updated_at":null,"deleted_at":null,"created_by":null,"updated_by":null,"deleted_by":null}'::jsonb,
     PRIMARY KEY (id)
 );

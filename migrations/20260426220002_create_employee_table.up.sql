@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS hr.employees (
     npwp TEXT,
     tax_status tax_status NOT NULL DEFAULT 'tk0',
     bank_account_no TEXT,
-    base_salary NUMERIC NOT NULL DEFAULT 0,
+    base_salary NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (base_salary >= 0),
     metadata JSONB NOT NULL DEFAULT '{"created_at":null,"updated_at":null,"deleted_at":null,"created_by":null,"updated_by":null,"deleted_by":null}'::jsonb,
     PRIMARY KEY (id)
 );

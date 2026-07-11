@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS hr.leave_types (
     company_id UUID NOT NULL,
     name TEXT NOT NULL,
     is_paid BOOLEAN NOT NULL DEFAULT TRUE,
-    annual_quota_days NUMERIC NOT NULL DEFAULT 0,
+    annual_quota_days NUMERIC(6, 2) NOT NULL DEFAULT 0 CHECK (annual_quota_days >= 0),
     allow_carry_forward BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     metadata JSONB NOT NULL DEFAULT '{"created_at":null,"updated_at":null,"deleted_at":null,"created_by":null,"updated_by":null,"deleted_by":null}'::jsonb,
