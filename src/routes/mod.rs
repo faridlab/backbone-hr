@@ -12,10 +12,15 @@ use std::sync::Arc;
 // Import handlers
 use crate::presentation::http::{
     create_attendance_routes,
+    create_attendance_read_routes,
     create_employee_routes,
+    create_employee_read_routes,
     create_leave_application_routes,
+    create_leave_application_read_routes,
     create_leave_balance_routes,
-    create_leave_type_routes
+    create_leave_balance_read_routes,
+    create_leave_type_routes,
+    create_leave_type_read_routes
 };
 
 // Import AppState for stateful routes
@@ -44,6 +49,20 @@ pub fn create_stateless_routes(module: &crate::HrModule) -> Router<()> {
         .merge(create_leave_application_routes(module.leave_application_service.clone()))
         .merge(create_leave_balance_routes(module.leave_balance_service.clone()))
         .merge(create_leave_type_routes(module.leave_type_service.clone()))
+}
+
+/// Read-only routes for the Hr module — every entity mounted READ-ONLY (the guarded base).
+///
+/// The generic `create_stateless_routes` exposes full mutable CRUD with no domain
+/// validation; this exposes only reads, so generic mutation can't bypass a write
+/// service's invariants. Extend it: `create_readonly_hr_routes(m).merge(my_validated_writes)`.
+pub fn create_readonly_hr_routes(module: &crate::HrModule) -> Router<()> {
+    Router::new()
+        .merge(create_attendance_read_routes(module.attendance_service.clone()))
+        .merge(create_employee_read_routes(module.employee_service.clone()))
+        .merge(create_leave_application_read_routes(module.leave_application_service.clone()))
+        .merge(create_leave_balance_read_routes(module.leave_balance_service.clone()))
+        .merge(create_leave_type_read_routes(module.leave_type_service.clone()))
 }
 
 /// Get all routes (stateless) for the Hr module.
