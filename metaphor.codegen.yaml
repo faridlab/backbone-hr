@@ -14,6 +14,15 @@ user_owned:
   - "src/application/service/hr_events.rs"
   - "src/application/service/hr_ports.rs"
   - "src/application/service/hr_write_service.rs"
+  # Own the hand-written HR SQL (the roster writes, the leave-balance engine's gated draw/restore, the
+  # payroll-facing period reads) that the write service orchestrates. Declared here — not renamed with a
+  # `_custom` suffix — so the generator skips them wholesale; this declaration is what makes editing
+  # them legitimate.
+  - "src/infrastructure/persistence/attendance_repository.rs"
+  - "src/infrastructure/persistence/employee_repository.rs"
+  - "src/infrastructure/persistence/leave_application_repository.rs"
+  - "src/infrastructure/persistence/leave_balance_repository.rs"
+  - "src/infrastructure/persistence/leave_type_repository.rs"
   - "tests/hr_golden_cases.rs"
   - "tests/hr_org_seam.rs"
   - "tests/integrity_probes.rs"

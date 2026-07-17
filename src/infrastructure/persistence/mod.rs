@@ -30,4 +30,13 @@ pub use backbone_orm::repository::{
 
 // Re-export custom persistence types
 // <<< CUSTOM
+// The hand-written HR SQL's parameter/projection types (see the five `*_repository` modules, all
+// declared `user_owned` in metaphor.codegen.yaml).
+pub use attendance_repository::NewAttendanceRow;
+pub use employee_repository::{EmployeeScopeRow, NewEmployeeRow};
+pub use leave_application_repository::{
+    LeaveApprovalRow, LeaveCancelRow, LeaveDaysRow, NewLeaveApplicationRow,
+};
+pub use leave_balance_repository::NewAllocationRow;
+pub use leave_type_repository::NewLeaveTypeRow;
 // END CUSTOM
