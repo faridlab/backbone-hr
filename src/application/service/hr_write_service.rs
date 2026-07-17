@@ -7,6 +7,7 @@
 //! Onboarding verifies the employee's department against the REAL backbone-organization through a port
 //! (zero normal Cargo edge). Days are calendar days over the inclusive range.
 
+use backbone_orm::company_scope;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use sqlx::{PgPool, Row};
@@ -107,13 +108,19 @@ impl HrWriteService {
         if e.first_name.trim().is_empty() {
             return Err(HrError::Invalid("employee needs a name".into()));
         }
-        let dup: Option<Uuid> = sqlx::query_scalar(
-            r#"SELECT id FROM hr.employees WHERE company_id=$1 AND employee_number=$2
-               AND (metadata->>'deleted_at') IS NULL"#,
-        )
-        .bind(e.company_id).bind(&e.employee_number)
-        .fetch_optional(&self.pool)
-        .await?;
+        // RLS scope (ADR-0008): the company is on the DTO — bind it for the whole body so the
+        // uniqueness probe and the insert both run with `app.company_id` set. The explicit
+        // `company_id` filter/bind stay as defense-in-depth.
+        let company = e.company_id;
+        company_scope::with_company_scope(Some(company), async move {
+        let dup: Option<Uuid> = company_scope::fetch_optional_scalar_scoped(
+            &self.pool,
+            sqlx::query_scalar(
+                r#"SELECT id FROM hr.employees WHERE company_id=$1 AND employee_number=$2
+                   AND (metadata->>'deleted_at') IS NULL"#,
+            )
+            .bind(e.company_id).bind(&e.employee_number),
+        ).await?;
         if dup.is_some() {
             return Err(HrError::Invalid("employee_number already exists in this company".into()));
         }
@@ -124,24 +131,26 @@ impl HrWriteService {
             }
         }
         let id = Uuid::new_v4();
-        sqlx::query(
-            r#"INSERT INTO hr.employees
-                 (id, company_id, employee_number, user_id, department_id, first_name, last_name,
-                  designation, employment_type, date_of_joining, status, nik, npwp, tax_status,
-                  bank_account_no, base_salary)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::employment_type,$10,'active'::employee_status,
-                       $11,$12,$13::tax_status,$14,$15)"#,
-        )
-        .bind(id).bind(e.company_id).bind(&e.employee_number).bind(e.user_id).bind(e.department_id)
-        .bind(&e.first_name).bind(&e.last_name).bind(&e.designation).bind(&e.employment_type)
-        .bind(e.date_of_joining).bind(&e.nik).bind(&e.npwp).bind(&e.tax_status).bind(&e.bank_account_no)
-        .bind(e.base_salary)
-        .execute(&self.pool)
-        .await?;
+        company_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"INSERT INTO hr.employees
+                     (id, company_id, employee_number, user_id, department_id, first_name, last_name,
+                      designation, employment_type, date_of_joining, status, nik, npwp, tax_status,
+                      bank_account_no, base_salary)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::employment_type,$10,'active'::employee_status,
+                           $11,$12,$13::tax_status,$14,$15)"#,
+            )
+            .bind(id).bind(e.company_id).bind(&e.employee_number).bind(e.user_id).bind(e.department_id)
+            .bind(&e.first_name).bind(&e.last_name).bind(&e.designation).bind(&e.employment_type)
+            .bind(e.date_of_joining).bind(&e.nik).bind(&e.npwp).bind(&e.tax_status).bind(&e.bank_account_no)
+            .bind(e.base_salary),
+        ).await?;
         sink.publish(&HrEvent::EmployeeOnboarded(EmployeeOnboarded {
             employee_id: id, company_id: e.company_id, employee_number: e.employee_number,
         }));
         Ok(id)
+        }).await
     }
 
     /// Exit an employee (resign or terminate) — sets the exit date and stops the roster. Terminal.
@@ -153,14 +162,18 @@ impl HrWriteService {
         sink: &dyn HrEventSink,
     ) -> Result<(), HrError> {
         let status = if terminated { "terminated" } else { "resigned" };
-        let row = sqlx::query(
-            r#"UPDATE hr.employees SET status=$2::employee_status, date_of_exit=$3
-               WHERE id=$1 AND status='active'::employee_status AND (metadata->>'deleted_at') IS NULL
-               RETURNING company_id"#,
-        )
-        .bind(employee_id).bind(status).bind(exit_date)
-        .fetch_optional(&self.pool)
-        .await?;
+        // RLS scope (ADR-0008), ID-only pattern: identified by the employee id alone — there is no
+        // company argument. The write rides the REQUEST-dedicated connection (which carries the
+        // caller's `app.company_id`), so another company's employee simply isn't matched.
+        let row = company_scope::fetch_optional_row_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"UPDATE hr.employees SET status=$2::employee_status, date_of_exit=$3
+                   WHERE id=$1 AND status='active'::employee_status AND (metadata->>'deleted_at') IS NULL
+                   RETURNING company_id"#,
+            )
+            .bind(employee_id).bind(status).bind(exit_date),
+        ).await?;
         match row {
             Some(r) => {
                 sink.publish(&HrEvent::EmployeeExited(EmployeeExited {
@@ -181,13 +194,15 @@ impl HrWriteService {
             return Err(HrError::Invalid("quota must be non-negative".into()));
         }
         let id = Uuid::new_v4();
-        sqlx::query(
-            r#"INSERT INTO hr.leave_types (id, company_id, name, is_paid, annual_quota_days, allow_carry_forward, is_active)
-               VALUES ($1,$2,$3,$4,$5,$6,true)"#,
-        )
-        .bind(id).bind(t.company_id).bind(&t.name).bind(t.is_paid).bind(t.annual_quota_days).bind(t.allow_carry_forward)
-        .execute(&self.pool)
-        .await?;
+        // RLS scope (ADR-0008): company on the DTO — bind it so the insert passes the WITH CHECK.
+        company_scope::with_company_scope(Some(t.company_id), company_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"INSERT INTO hr.leave_types (id, company_id, name, is_paid, annual_quota_days, allow_carry_forward, is_active)
+                   VALUES ($1,$2,$3,$4,$5,$6,true)"#,
+            )
+            .bind(id).bind(t.company_id).bind(&t.name).bind(t.is_paid).bind(t.annual_quota_days).bind(t.allow_carry_forward),
+        )).await?;
         Ok(id)
     }
 
@@ -204,16 +219,18 @@ impl HrWriteService {
         if days < Decimal::ZERO {
             return Err(HrError::Invalid("allocation must be non-negative".into()));
         }
-        let moved = sqlx::query(
-            r#"INSERT INTO hr.leave_balances (id, company_id, employee_id, leave_type_id, year, allocated, used)
-               VALUES ($1,$2,$3,$4,$5,$6,0)
-               ON CONFLICT (employee_id, leave_type_id, year)
-               DO UPDATE SET allocated = $6
-               WHERE hr.leave_balances.used <= $6"#,
-        )
-        .bind(Uuid::new_v4()).bind(company_id).bind(employee_id).bind(leave_type_id).bind(year).bind(days)
-        .execute(&self.pool)
-        .await?;
+        // RLS scope (ADR-0008): company is an explicit parameter — bind it for the upsert.
+        let moved = company_scope::with_company_scope(Some(company_id), company_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"INSERT INTO hr.leave_balances (id, company_id, employee_id, leave_type_id, year, allocated, used)
+                   VALUES ($1,$2,$3,$4,$5,$6,0)
+                   ON CONFLICT (employee_id, leave_type_id, year)
+                   DO UPDATE SET allocated = $6
+                   WHERE hr.leave_balances.used <= $6"#,
+            )
+            .bind(Uuid::new_v4()).bind(company_id).bind(employee_id).bind(leave_type_id).bind(year).bind(days),
+        )).await?;
         if moved.rows_affected() != 1 {
             return Err(HrError::Invalid("allocation is below the days already used".into()));
         }
@@ -226,23 +243,27 @@ impl HrWriteService {
         if a.to_date < a.from_date {
             return Err(HrError::Invalid("to_date is before from_date".into()));
         }
-        let emp = sqlx::query(
-            r#"SELECT company_id, status::text AS status FROM hr.employees
-               WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
-        )
-        .bind(a.employee_id)
-        .fetch_optional(&self.pool)
-        .await?
+        // RLS scope (ADR-0008), ID-only pattern: the applicant is identified by employee id alone, so
+        // the lookup rides the request-dedicated connection (RLS fences it to the caller's company).
+        // Having read the employee's company off the row, the insert below is bound to it explicitly.
+        let emp = company_scope::fetch_optional_row_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"SELECT company_id, status::text AS status FROM hr.employees
+                   WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
+            )
+            .bind(a.employee_id),
+        ).await?
         .ok_or(HrError::NotFound("employee"))?;
         if emp.get::<String, _>("status") != "active" {
             return Err(HrError::InvalidState("employee is not active"));
         }
         let company_id: Uuid = emp.get("company_id");
-        let active: Option<bool> = sqlx::query_scalar(
-            "SELECT is_active FROM hr.leave_types WHERE id=$1 AND company_id=$2")
-            .bind(a.leave_type_id).bind(company_id)
-            .fetch_optional(&self.pool)
-            .await?;
+        let active: Option<bool> = company_scope::with_company_scope(Some(company_id), company_scope::fetch_optional_scalar_scoped(
+            &self.pool,
+            sqlx::query_scalar("SELECT is_active FROM hr.leave_types WHERE id=$1 AND company_id=$2")
+                .bind(a.leave_type_id).bind(company_id),
+        )).await?;
         match active {
             None => return Err(HrError::NotFound("leave type")),
             Some(false) => return Err(HrError::InvalidState("leave type is not active")),
@@ -250,15 +271,16 @@ impl HrWriteService {
         }
         let days = Decimal::from((a.to_date.date_naive() - a.from_date.date_naive()).num_days() + 1);
         let id = Uuid::new_v4();
-        sqlx::query(
-            r#"INSERT INTO hr.leave_applications
-                 (id, company_id, employee_id, leave_type_id, from_date, to_date, days, status, reason)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,'pending'::leave_status,$8)"#,
-        )
-        .bind(id).bind(company_id).bind(a.employee_id).bind(a.leave_type_id).bind(a.from_date)
-        .bind(a.to_date).bind(days).bind(&a.reason)
-        .execute(&self.pool)
-        .await?;
+        company_scope::with_company_scope(Some(company_id), company_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"INSERT INTO hr.leave_applications
+                     (id, company_id, employee_id, leave_type_id, from_date, to_date, days, status, reason)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,'pending'::leave_status,$8)"#,
+            )
+            .bind(id).bind(company_id).bind(a.employee_id).bind(a.leave_type_id).bind(a.from_date)
+            .bind(a.to_date).bind(days).bind(&a.reason),
+        )).await?;
         Ok(id)
     }
 
@@ -273,15 +295,19 @@ impl HrWriteService {
         now: DateTime<Utc>,
         sink: &dyn HrEventSink,
     ) -> Result<(), HrError> {
-        let app = sqlx::query(
-            r#"SELECT la.company_id, la.employee_id, la.leave_type_id, la.days, la.from_date,
-                      la.status::text AS status, lt.is_paid
-               FROM hr.leave_applications la JOIN hr.leave_types lt ON lt.id = la.leave_type_id
-               WHERE la.id=$1 AND (la.metadata->>'deleted_at') IS NULL"#,
-        )
-        .bind(leave_application_id)
-        .fetch_optional(&self.pool)
-        .await?
+        // RLS scope (ADR-0008), ID-only pattern: identified by the application id alone. The read rides
+        // the request-dedicated connection; the company read off the row then binds the transaction
+        // below, so the transition + the balance draw are both fenced even for non-request callers.
+        let app = company_scope::fetch_optional_row_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"SELECT la.company_id, la.employee_id, la.leave_type_id, la.days, la.from_date,
+                          la.status::text AS status, lt.is_paid
+                   FROM hr.leave_applications la JOIN hr.leave_types lt ON lt.id = la.leave_type_id
+                   WHERE la.id=$1 AND (la.metadata->>'deleted_at') IS NULL"#,
+            )
+            .bind(leave_application_id),
+        ).await?
         .ok_or(HrError::NotFound("leave application"))?;
         if app.get::<String, _>("status") != "pending" {
             return Err(HrError::InvalidState("leave application is not pending"));
@@ -294,6 +320,7 @@ impl HrWriteService {
         let year = app.get::<DateTime<Utc>, _>("from_date").date_naive().format("%Y").to_string().parse::<i32>().unwrap();
 
         let mut tx = self.pool.begin().await?;
+        company_scope::bind_company_on(&mut tx, company_id).await?;
         // Claim the transition first (write-once), then draw the balance under the same tx.
         let moved = sqlx::query(
             r#"UPDATE hr.leave_applications
@@ -328,13 +355,16 @@ impl HrWriteService {
 
     /// Reject a pending leave application (no balance change).
     pub async fn reject_leave(&self, leave_application_id: Uuid) -> Result<(), HrError> {
-        let moved = sqlx::query(
-            r#"UPDATE hr.leave_applications SET status='rejected'::leave_status
-               WHERE id=$1 AND status='pending'::leave_status AND (metadata->>'deleted_at') IS NULL"#,
-        )
-        .bind(leave_application_id)
-        .execute(&self.pool)
-        .await?;
+        // RLS scope (ADR-0008), ID-only pattern: no company argument — the write rides the
+        // request-dedicated connection, so another company's application is simply not matched.
+        let moved = company_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"UPDATE hr.leave_applications SET status='rejected'::leave_status
+                   WHERE id=$1 AND status='pending'::leave_status AND (metadata->>'deleted_at') IS NULL"#,
+            )
+            .bind(leave_application_id),
+        ).await?;
         if moved.rows_affected() != 1 {
             return Err(HrError::InvalidState("leave application is not pending"));
         }
@@ -344,19 +374,27 @@ impl HrWriteService {
     /// Cancel a leave application. If it was APPROVED, restores the drawn-down balance in the same tx as
     /// the transition (so a balance is never left short); a pending one just cancels.
     pub async fn cancel_leave(&self, leave_application_id: Uuid) -> Result<(), HrError> {
-        let app = sqlx::query(
-            r#"SELECT employee_id, leave_type_id, days, from_date, status::text AS status
-               FROM hr.leave_applications WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
-        )
-        .bind(leave_application_id)
-        .fetch_optional(&self.pool)
-        .await?
+        // RLS scope (ADR-0008), ID-only pattern: identified by the application id alone. The read rides
+        // the request-dedicated connection and now also carries `company_id`, so the restore
+        // transaction below can be bound explicitly (correct for non-request callers too).
+        let app = company_scope::fetch_optional_row_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"SELECT company_id, employee_id, leave_type_id, days, from_date, status::text AS status
+                   FROM hr.leave_applications WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
+            )
+            .bind(leave_application_id),
+        ).await?
         .ok_or(HrError::NotFound("leave application"))?;
+        let company_id: Uuid = app.get("company_id");
         let status: String = app.get("status");
         if status == "pending" {
-            let m = sqlx::query(
-                "UPDATE hr.leave_applications SET status='cancelled'::leave_status WHERE id=$1 AND status='pending'::leave_status")
-                .bind(leave_application_id).execute(&self.pool).await?;
+            let m = company_scope::execute_scoped(
+                &self.pool,
+                sqlx::query(
+                    "UPDATE hr.leave_applications SET status='cancelled'::leave_status WHERE id=$1 AND status='pending'::leave_status")
+                    .bind(leave_application_id),
+            ).await?;
             return if m.rows_affected() == 1 { Ok(()) } else { Err(HrError::InvalidState("not cancellable")) };
         }
         if status != "approved" {
@@ -368,6 +406,7 @@ impl HrWriteService {
         let year = app.get::<DateTime<Utc>, _>("from_date").date_naive().format("%Y").to_string().parse::<i32>().unwrap();
 
         let mut tx = self.pool.begin().await?;
+        company_scope::bind_company_on(&mut tx, company_id).await?;
         let moved = sqlx::query(
             r#"UPDATE hr.leave_applications SET status='cancelled'::leave_status
                WHERE id=$1 AND status='approved'::leave_status"#,
@@ -400,24 +439,28 @@ impl HrWriteService {
 
     /// Record (or overwrite) an employee's attendance for a day. One record per (employee, date).
     pub async fn mark_attendance(&self, a: NewAttendance) -> Result<Uuid, HrError> {
-        let emp = sqlx::query(
-            "SELECT company_id FROM hr.employees WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
-            .bind(a.employee_id)
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or(HrError::NotFound("employee"))?;
+        // RLS scope (ADR-0008), ID-only pattern: the employee lookup rides the request-dedicated
+        // connection; the company read off that row then scopes the upsert (so it passes WITH CHECK).
+        let emp = company_scope::fetch_optional_row_scoped(
+            &self.pool,
+            sqlx::query(
+                "SELECT company_id FROM hr.employees WHERE id=$1 AND (metadata->>'deleted_at') IS NULL")
+                .bind(a.employee_id),
+        ).await?
+        .ok_or(HrError::NotFound("employee"))?;
         let company_id: Uuid = emp.get("company_id");
-        let id: Uuid = sqlx::query_scalar(
-            r#"INSERT INTO hr.attendances (id, company_id, employee_id, attendance_date, status, working_hours)
-               VALUES ($1,$2,$3,$4,$5::attendance_status,$6)
-               ON CONFLICT (employee_id, attendance_date)
-               DO UPDATE SET status=EXCLUDED.status, working_hours=EXCLUDED.working_hours
-               RETURNING id"#,
-        )
-        .bind(Uuid::new_v4()).bind(company_id).bind(a.employee_id).bind(a.attendance_date)
-        .bind(&a.status).bind(a.working_hours)
-        .fetch_one(&self.pool)
-        .await?;
+        let id: Uuid = company_scope::with_company_scope(Some(company_id), company_scope::fetch_one_scalar_scoped(
+            &self.pool,
+            sqlx::query_scalar(
+                r#"INSERT INTO hr.attendances (id, company_id, employee_id, attendance_date, status, working_hours)
+                   VALUES ($1,$2,$3,$4,$5::attendance_status,$6)
+                   ON CONFLICT (employee_id, attendance_date)
+                   DO UPDATE SET status=EXCLUDED.status, working_hours=EXCLUDED.working_hours
+                   RETURNING id"#,
+            )
+            .bind(Uuid::new_v4()).bind(company_id).bind(a.employee_id).bind(a.attendance_date)
+            .bind(&a.status).bind(a.working_hours),
+        )).await?;
         Ok(id)
     }
 
@@ -431,8 +474,13 @@ impl HrWriteService {
         from: DateTime<Utc>,
         to: DateTime<Utc>,
     ) -> Result<PeriodSummary, HrError> {
+        // RLS scope (ADR-0008), ID-only pattern: read-only, identified by employee id alone — both
+        // reads ride the request-dedicated connection. An event/job caller must wrap this in
+        // `with_company_scope(Some(company_id))`, otherwise the reads fail closed (0 rows).
         // Approved leave days clamped to the period, split by is_paid.
-        let rows = sqlx::query(
+        let rows = company_scope::fetch_all_rows_scoped(
+            &self.pool,
+            sqlx::query(
             r#"SELECT lt.is_paid,
                       COALESCE(SUM(GREATEST(0, (LEAST(la.to_date::date, $3::date)
                                               - GREATEST(la.from_date::date, $2::date) + 1))), 0)::numeric AS days
@@ -441,10 +489,9 @@ impl HrWriteService {
                  AND (la.metadata->>'deleted_at') IS NULL
                  AND la.from_date::date <= $3::date AND la.to_date::date >= $2::date
                GROUP BY lt.is_paid"#,
-        )
-        .bind(employee_id).bind(from).bind(to)
-        .fetch_all(&self.pool)
-        .await?;
+            )
+            .bind(employee_id).bind(from).bind(to),
+        ).await?;
         let (mut paid, mut unpaid) = (Decimal::ZERO, Decimal::ZERO);
         for r in &rows {
             let d: Decimal = r.get("days");
@@ -452,7 +499,9 @@ impl HrWriteService {
         }
         // Attendance absences NOT already covered by an approved leave (so leave + attendance never
         // double-count the same day).
-        let absent_days: i64 = sqlx::query_scalar(
+        let absent_days: i64 = company_scope::fetch_one_scalar_scoped(
+            &self.pool,
+            sqlx::query_scalar(
             r#"SELECT count(*) FROM hr.attendances a
                WHERE a.employee_id=$1 AND a.attendance_date::date BETWEEN $2::date AND $3::date
                  AND a.status='absent'::attendance_status AND (a.metadata->>'deleted_at') IS NULL
@@ -460,10 +509,9 @@ impl HrWriteService {
                    SELECT 1 FROM hr.leave_applications la
                    WHERE la.employee_id=$1 AND la.status='approved'::leave_status
                      AND a.attendance_date::date BETWEEN la.from_date::date AND la.to_date::date)"#,
-        )
-        .bind(employee_id).bind(from).bind(to)
-        .fetch_one(&self.pool)
-        .await?;
+            )
+            .bind(employee_id).bind(from).bind(to),
+        ).await?;
         Ok(PeriodSummary { paid_leave_days: paid, unpaid_leave_days: unpaid, absent_days })
     }
 }
