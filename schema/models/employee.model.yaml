@@ -92,6 +92,11 @@ models:
         fields: [department_id]
       - type: index
         fields: [user_id]
+      # Race-proof the per-company employee_number uniqueness check (ADR-001 parking lot).
+      # Partial on live rows only — soft-deleted duplicates (metadata.deleted_at set) are tolerated.
+      - type: unique
+        fields: [company_id, employee_number]
+        where: "deleted_at IS NULL"
 
 enums:
   - name: EmploymentType

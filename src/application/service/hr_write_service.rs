@@ -9,6 +9,7 @@
 
 use backbone_orm::company_scope;
 use chrono::{DateTime, Utc};
+use chrono::Datelike;
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -251,6 +252,15 @@ impl HrWriteService {
         if a.to_date < a.from_date {
             return Err(HrError::Invalid("to_date is before from_date".into()));
         }
+        // Year-spanning leave is rejected: the leave engine debits exactly one year's allocation
+        // (the `from_date` year, see approve_leave), so a Dec→Jan application would silently debit
+        // only the start year's bucket and leave the Jan days "free" (ADR-001 parking lot). Callers
+        // must split the application at the calendar-year boundary — one application per year.
+        if a.from_date.date_naive().year() != a.to_date.date_naive().year() {
+            return Err(HrError::Invalid(
+                "leave application spans calendar years; file one application per year".into(),
+            ));
+        }
         // RLS scope (ADR-0008), ID-only pattern: the applicant is identified by employee id alone, so
         // the lookup rides the request-dedicated connection (RLS fences it to the caller's company).
         // Having read the employee's company off the row, the insert below is bound to it explicitly.
@@ -311,7 +321,7 @@ impl HrWriteService {
         let leave_type_id = app.leave_type_id;
         let days = app.days;
         let is_paid = app.is_paid;
-        let year = app.from_date.date_naive().format("%Y").to_string().parse::<i32>().unwrap();
+        let year = app.from_date.date_naive().year();
 
         let mut tx = self.pool.begin().await?;
         company_scope::bind_company_on(&mut tx, company_id).await?;
@@ -369,7 +379,7 @@ impl HrWriteService {
         let employee_id = app.employee_id;
         let leave_type_id = app.leave_type_id;
         let days = app.days;
-        let year = app.from_date.date_naive().format("%Y").to_string().parse::<i32>().unwrap();
+        let year = app.from_date.date_naive().year();
 
         let mut tx = self.pool.begin().await?;
         company_scope::bind_company_on(&mut tx, company_id).await?;
