@@ -5,8 +5,6 @@
 //! These services provide the public API for other modules.
 //! They only expose read operations - writes go through events.
 
-use std::sync::Arc;
-
 use anyhow::Result;
 use async_trait::async_trait;
 use uuid::Uuid;
@@ -68,21 +66,6 @@ pub trait HrQueryService: Send + Sync {
     /// Check if LeaveType exists
     async fn leave_type_exists(&self, id: LeaveTypeId) -> Result<bool>;
 
-}
-
-// ============================================================================
-// QUERY SERVICE IMPLEMENTATION
-// ============================================================================
-
-/// Default implementation of HrQueryService
-pub struct HrQueryServiceImpl<R> {
-    repository: Arc<R>,
-}
-
-impl<R> HrQueryServiceImpl<R> {
-    pub fn new(repository: Arc<R>) -> Self {
-        Self { repository }
-    }
 }
 
 // ============================================================================

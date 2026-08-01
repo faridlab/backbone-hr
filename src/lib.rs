@@ -23,6 +23,7 @@ pub mod infrastructure;
 pub mod application;
 pub mod presentation;
 pub mod seeders;
+pub mod exports;
 
 // Re-exports for convenience - Domain entities
 pub use domain::entity::*;
@@ -54,11 +55,13 @@ use sqlx::PgPool;
 /// let router = hr.all_crud_routes();
 /// ```
 pub struct HrModule {
-    pub attendance_service: Arc<AttendanceService>,
-    pub employee_service: Arc<EmployeeService>,
-    pub leave_application_service: Arc<LeaveApplicationService>,
-    pub leave_balance_service: Arc<LeaveBalanceService>,
-    pub leave_type_service: Arc<LeaveTypeService>,
+    pub(crate) attendance_service: Arc<AttendanceService>,
+    pub(crate) employee_service: Arc<EmployeeService>,
+    pub(crate) leave_application_service: Arc<LeaveApplicationService>,
+    pub(crate) leave_balance_service: Arc<LeaveBalanceService>,
+    pub(crate) leave_type_service: Arc<LeaveTypeService>,
+    // <<< CUSTOM FIELDS
+    // END CUSTOM
 }
 
 impl HrModule {

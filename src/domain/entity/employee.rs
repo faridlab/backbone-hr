@@ -333,6 +333,9 @@ impl backbone_orm::EntityRepoMeta for Employee {
     fn search_fields() -> &'static [&'static str] {
         &["employee_number", "first_name"]
     }
+    fn company_field() -> Option<&'static str> {
+        Some("company_id")
+    }
 }
 
 /// Builder for Employee entity

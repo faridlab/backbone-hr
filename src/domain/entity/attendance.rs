@@ -221,6 +221,9 @@ impl backbone_orm::EntityRepoMeta for Attendance {
     fn search_fields() -> &'static [&'static str] {
         &[]
     }
+    fn company_field() -> Option<&'static str> {
+        Some("company_id")
+    }
 }
 
 /// Builder for Attendance entity
