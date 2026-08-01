@@ -38,10 +38,11 @@ follow the path.
 
 ## Related, already-written docs
 
-This handbook is the *narrative*. Two reference sets live alongside it — link out, don't duplicate:
+This handbook is the *narrative*. Three reference sets live alongside it — link out, don't duplicate:
 
 - **[Schema DSL reference](schema/README.md)** — the exact YAML grammar: [types](schema/TYPES.md), [model rules](schema/RULE_FORMAT_MODELS.md), [generation targets](schema/GENERATION.md), [error codes](schema/ERROR_CODES.md), [examples](schema/EXAMPLES.md). This is the *Reference* corner of Diátaxis; the handbook explains the *why*.
 - **[Business flows](business-flows/README.md)** — one doc per business flow (actors, preconditions, rules, postconditions), each linked to its executable BDD oracle.
+- **[Module ADRs](adr/)** — *Maintainer.* Decisions specific to `hr`: [ADR-001](adr/ADR-001-hr-boundary-and-leave-engine.md) (boundary, leave engine, onboarding seam), [ADR-002](adr/ADR-002-hris-scope-and-module-fanout.md) (HRIS scope — constellation of modules), [ADR-003](adr/ADR-003-extract-backbone-employee-keep-workforce-time-unified.md) (2-way council verdict — *superseded by ADR-004*), [ADR-004](adr/ADR-004-decompose-into-six-workforce-modules.md) (six-module decomposition mirroring salt-laravel), [ADR-005](adr/ADR-005-hris-coherence-fixes.md) (coherence fixes: Approvals context, UU PDP fence, compound-event contracts). Council records live in [`council/`](council/).
 
 ## Conventions this handbook follows
 
